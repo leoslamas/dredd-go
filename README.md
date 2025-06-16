@@ -24,13 +24,26 @@ When using the `BestFirstRuleRunner`, the rules will be executed so that if `OnE
 
 ## Rules
 
-Here are some useful methods for setting up your rules:
+Here are the available methods for setting up your rules:
 
-- `OnEval()` sets the condition that determines whether the rule should execute.
-- `OnExecute()` contains the main code the rule should execute.
-- `OnPreExecute()` any actions the rule needs to perform beforehand.
-- `OnPostExecute()` any actions the rule should perform afterward.
-- `AddChildren()` helper method to add one or multiple child rules.
+### Simple API (recommended for most use cases):
+- `OnEval(func(Context[T]) bool)` - Sets the condition that determines whether the rule should execute
+- `OnExecute(func(Context[T]))` - Contains the main code the rule should execute  
+- `OnPreExecute(func(Context[T]))` - Any actions the rule needs to perform beforehand
+- `OnPostExecute(func(Context[T]))` - Any actions the rule should perform afterward
+- `AddChildren(...*BaseRule[T,C]) error` - Add child rules with validation
+
+### Advanced API (with error handling):
+- `OnEvalWithError(func(Context[T]) EvaluationResult)` - Evaluation with error control
+- `OnExecuteWithError(func(Context[T]) ExecutionResult)` - Execution with error control
+- `OnPreExecuteWithError(func(Context[T]) ExecutionResult)` - Pre-execution with error control
+- `OnPostExecuteWithError(func(Context[T]) ExecutionResult)` - Post-execution with error control
+
+### Runner Functions:
+- `ChainRuleRunner(ruleContext, rules...)` - Simple execution
+- `ChainRuleRunnerWithContext(goCtx, ruleContext, rules...)` - With Go context support
+- `BestFirstRuleRunner(ruleContext, rules...)` - Simple execution
+- `BestFirstRuleRunnerWithContext(goCtx, ruleContext, rules...)` - With Go context support
   
 *Notes:*
 
@@ -44,36 +57,38 @@ Here are some useful methods for setting up your rules:
 import "github.com/leoslamas/dredd-go/rule"
 
 func main() {
-	var rule1 = rule.NewChainRule()
-	var rule2 = rule.NewChainRule()
+	var rule1 = rule.NewChainRule[bool]()
+	var rule2 = rule.NewChainRule[bool]()
 
-	rule1.OnEval(func(ctx rule.Context) bool {
+	rule1.OnEval(func(ctx rule.Context[bool]) bool {
 		println("Eval Chain Rule 1")
-		return ctx.GetRuleContext().Get("value").(bool) // true
+		value, exists := ctx.GetRuleContext().Get("value")
+		return exists && value
 
-	}).OnPreExecute(func(ctx rule.Context) {
+	}).OnPreExecute(func(ctx rule.Context[bool]) {
 		println("Pre Chain Rule 1")
 
-	}).OnExecute(func(ctx rule.Context) {
+	}).OnExecute(func(ctx rule.Context[bool]) {
 		println("Execute Chain Rule 1")
 
-	}).OnPostExecute(func(ctx rule.Context) {
+	}).OnPostExecute(func(ctx rule.Context[bool]) {
 		println("Post Chain Rule 1")
+	})
 
-	}).AddChildren(
-		rule2.OnEval(func(ctx rule.Context) bool {
-			println("Eval Chain Rule 2")
-			return false
+	rule2.OnEval(func(ctx rule.Context[bool]) bool {
+		println("Eval Chain Rule 2")
+		return false
 
-		}).OnExecute(func(ctx rule.Context) {
-			println("Execute Chain Rule 2") // unreachable
-		}),
-	)
+	}).OnExecute(func(ctx rule.Context[bool]) {
+		println("Execute Chain Rule 2") // unreachable
+	})
 
-	var ruleContext = rule.NewRuleContext()
+	_ = rule1.AddChildren(rule2.BaseRule)
+
+	var ruleContext = rule.NewRuleContext[bool]()
 	ruleContext.Set("value", true)
 
-	rule.ChainRuleRunner(ruleContext, rule1)
+	_ = rule.ChainRuleRunner(ruleContext, rule1.BaseRule)
 }
 ```
 
@@ -85,6 +100,74 @@ Result:
 > Execute Chain Rule 1
 > Post Chain Rule 1
 > Eval Chain Rule 2
+```
+
+## Advanced Examples
+
+### Error Handling with Advanced API
+
+```go
+rule := rule.NewChainRule[string]()
+
+// Using advanced API with error handling
+rule.OnEvalWithError(func(ctx rule.Context[string]) rule.EvaluationResult {
+    value, exists := ctx.GetRuleContext().Get("condition")
+    if !exists {
+        return rule.EvaluationResult{
+            ShouldExecute: false,
+            Error:         errors.New("missing condition"),
+        }
+    }
+    return rule.EvaluationResult{ShouldExecute: value == "proceed", Error: nil}
+}).OnExecuteWithError(func(ctx rule.Context[string]) rule.ExecutionResult {
+    // Complex logic that might fail
+    if err := performComplexOperation(); err != nil {
+        return rule.ExecutionResult{Error: err}
+    }
+    ctx.GetRuleContext().Set("result", "success")
+    return rule.ExecutionResult{Error: nil}
+})
+
+ruleContext := rule.NewRuleContext[string]()
+ruleContext.Set("condition", "proceed")
+
+if err := rule.ChainRuleRunner(ruleContext, rule.BaseRule); err != nil {
+    log.Printf("Rule execution failed: %v", err)
+}
+```
+
+### Context Cancellation and Timeouts
+
+```go
+// Using context with timeout
+ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()
+
+ruleContext := rule.NewRuleContext[int]()
+err := rule.ChainRuleRunnerWithContext(ctx, ruleContext, myRule.BaseRule)
+if err != nil {
+    if errors.Is(err, context.DeadlineExceeded) {
+        log.Println("Rule execution timed out")
+    } else {
+        log.Printf("Rule execution failed: %v", err)
+    }
+}
+```
+
+### Functional Options (Alternative Configuration)
+
+```go
+// Using functional options for complex rule setup
+rule := rule.NewChainRuleWithOptions[int](
+    rule.WithEvaluation[rule.ChainRule[int], int](func(ctx rule.Context[int]) bool {
+        count, exists := ctx.GetRuleContext().Get("count")
+        return exists && count > 0
+    }),
+    rule.WithExecution[rule.ChainRule[int], int](func(ctx rule.Context[int]) {
+        count, _ := ctx.GetRuleContext().Get("count")
+        ctx.GetRuleContext().Set("result", count*2)
+    }),
+)
 ```
 
 ## Todo

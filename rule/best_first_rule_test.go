@@ -7,9 +7,9 @@ import (
 )
 
 func TestNewBestFirstRule(t *testing.T) {
-	rule := NewBestFirstRule()
-	if rule.ruleType != bestFirstRuleType {
-		t.Errorf("Expected ruleType to be %v, got %v", bestFirstRuleType, rule.ruleType)
+	rule := NewBestFirstRule[bool]()
+	if rule.ruleType != BestFirstRuleType {
+		t.Errorf("Expected ruleType to be %v, got %v", BestFirstRuleType, rule.ruleType)
 	}
 	if rule.context == nil {
 		t.Error("Expected context to be initialized, got nil")
@@ -18,25 +18,23 @@ func TestNewBestFirstRule(t *testing.T) {
 	if len(rule.children) != 0 {
 		t.Errorf("Expected children to be empty, got %d", len(rule.children))
 	}
-	if rule.onEval == nil || rule.onPreExecute == nil || rule.onExecute == nil || rule.onPostExecute == nil {
-		t.Error("Expected all callbacks to be initialized")
-	}
+	// Note: callbacks can be nil in new API
 }
 
 func TestBestFirstRuleRunner(t *testing.T) {
-	ruleContext := NewRuleContext()
-	rule1 := NewBestFirstRule()
-	rule2 := NewBestFirstRule()
+	ruleContext := NewRuleContext[bool]()
+	rule1 := NewBestFirstRule[bool]()
+	rule2 := NewBestFirstRule[bool]()
 
-	rule1.onEval = func(r Context) bool { return true }
-	rule2.onEval = func(r Context) bool { return false }
-
-	rules := []*BaseRule[BestFirstRule]{rule1, rule2}
+	rule1.OnEval(func(r Context[bool]) bool { return true })
+	rule2.OnEval(func(r Context[bool]) bool { return false })
 
 	//test with no rules
-	BestFirstRuleRunner[BestFirstRule](ruleContext)
+	err := BestFirstRuleRunner[BestFirstRule[bool], bool](ruleContext)
+	assert.NoError(t, err)
 
-	BestFirstRuleRunner(ruleContext, rules...)
+	err = BestFirstRuleRunner(ruleContext, rule1.BaseRule, rule2.BaseRule)
+	assert.NoError(t, err)
 
 	if rule1.context != ruleContext {
 		t.Error("Expected rule1 context to be set to ruleContext")
@@ -47,127 +45,150 @@ func TestBestFirstRuleRunner(t *testing.T) {
 }
 
 func TestBestFirstRuleContext(t *testing.T) {
-	rule := NewBestFirstRule()
-	rule2 := NewBestFirstRule()
+	rule := NewBestFirstRule[bool]()
+	rule2 := NewBestFirstRule[bool]()
 
-	rule.OnEval(func(ctx Context) bool {
+	rule.OnEval(func(ctx Context[bool]) bool {
 		ctx.GetRuleContext().Set("eval_1", true)
-		return ctx.GetRuleContext().Get("start").(bool)
+		start, _ := ctx.GetRuleContext().Get("start")
+		return start
 
-	}).OnPreExecute(func(ctx Context) {
+	}).OnPreExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("pre_execute_1", true)
 
-	}).OnExecute(func(ctx Context) {
+	}).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("execute_1", true)
 
-	}).OnPostExecute(func(ctx Context) {
+	}).OnPostExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("post_execute_1", true)
+	})
 
-	}).AddChildren(
-		rule2.OnEval(func(ctx Context) bool {
-			ctx.GetRuleContext().Set("eval_2", true)
-			return true
+	rule2.OnEval(func(ctx Context[bool]) bool {
+		ctx.GetRuleContext().Set("eval_2", true)
+		return true
 
-		}).OnPreExecute(func(ctx Context) {
-			ctx.GetRuleContext().Set("pre_execute_2", true)
+	}).OnPreExecute(func(ctx Context[bool]) {
+		ctx.GetRuleContext().Set("pre_execute_2", true)
 
-		}).OnExecute(func(ctx Context) {
-			ctx.GetRuleContext().Set("execute_2", true)
+	}).OnExecute(func(ctx Context[bool]) {
+		ctx.GetRuleContext().Set("execute_2", true)
 
-		}).OnPostExecute(func(ctx Context) {
-			ctx.GetRuleContext().Set("post_execute_2", true)
-		}))
+	}).OnPostExecute(func(ctx Context[bool]) {
+		ctx.GetRuleContext().Set("post_execute_2", true)
+	})
 
-	ruleContext := NewRuleContext()
+	_ = rule.AddChildren(rule2.BaseRule)
+
+	ruleContext := NewRuleContext[bool]()
 	ruleContext.Set("start", true)
 
-	BestFirstRuleRunner(ruleContext, rule)
+	err := BestFirstRuleRunner(ruleContext, rule.BaseRule)
+	assert.NoError(t, err)
 
-	assert.True(t, ruleContext.Get("eval_1").(bool))
-	assert.True(t, ruleContext.Get("pre_execute_1").(bool))
-	assert.True(t, ruleContext.Get("execute_1").(bool))
-	assert.True(t, ruleContext.Get("post_execute_1").(bool))
-	assert.True(t, ruleContext.Get("eval_2").(bool))
-	assert.True(t, ruleContext.Get("pre_execute_2").(bool))
-	assert.True(t, ruleContext.Get("execute_2").(bool))
-	assert.True(t, ruleContext.Get("post_execute_2").(bool))
+	val1, _ := ruleContext.Get("eval_1")
+	assert.True(t, val1)
+	val2, _ := ruleContext.Get("pre_execute_1")
+	assert.True(t, val2)
+	val3, _ := ruleContext.Get("execute_1")
+	assert.True(t, val3)
+	val4, _ := ruleContext.Get("post_execute_1")
+	assert.True(t, val4)
+	val5, _ := ruleContext.Get("eval_2")
+	assert.True(t, val5)
+	val6, _ := ruleContext.Get("pre_execute_2")
+	assert.True(t, val6)
+	val7, _ := ruleContext.Get("execute_2")
+	assert.True(t, val7)
+	val8, _ := ruleContext.Get("post_execute_2")
+	assert.True(t, val8)
 }
 
 func TestBestFirstRule_ShouldNotPanicOnDefaultCallbacks(t *testing.T) {
-	rule := NewBestFirstRule()
-	rule2 := NewBestFirstRule()
+	rule := NewBestFirstRule[bool]()
+	rule2 := NewBestFirstRule[bool]()
 
-	rule.AddChildren(rule2)
+	_ = rule.AddChildren(rule2.BaseRule)
 
-	BestFirstRuleRunner(NewRuleContext(), rule)
+	err := BestFirstRuleRunner(NewRuleContext[bool](), rule.BaseRule)
+	assert.NoError(t, err)
 }
 
 func TestBestFirstRule_ShouldRunChildOnEvalTrue(t *testing.T) {
-	rule := NewBestFirstRule()
-	rule.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule := NewBestFirstRule[bool]()
+	rule.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_1", true)
 	})
 
-	rule2 := NewBestFirstRule()
-	rule2.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule2 := NewBestFirstRule[bool]()
+	rule2.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_2", true)
 	})
 
-	rule3 := NewBestFirstRule()
-	rule3.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule3 := NewBestFirstRule[bool]()
+	rule3.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_3", true)
 	})
 
-	rule4 := NewBestFirstRule()
-	rule4.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule4 := NewBestFirstRule[bool]()
+	rule4.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_4", true)
 	})
 
-	rule.AddChildren(rule3)
-	rule2.AddChildren(rule4)
+	_ = rule.AddChildren(rule3.BaseRule)
+	_ = rule2.AddChildren(rule4.BaseRule)
 
-	ruleContext := NewRuleContext()
+	ruleContext := NewRuleContext[bool]()
 
-	BestFirstRuleRunner(ruleContext, rule, rule2)
+	err := BestFirstRuleRunner(ruleContext, rule.BaseRule, rule2.BaseRule)
+	assert.NoError(t, err)
 
-	assert.True(t, ruleContext.Get("rule_1").(bool))
-	assert.Panics(t, func() { var _ = ruleContext.Get("rule_2").(bool) })
-	assert.True(t, ruleContext.Get("rule_3").(bool))
-	assert.Panics(t, func() { var _ = ruleContext.Get("rule_4").(bool) })
+	val1, _ := ruleContext.Get("rule_1")
+	assert.True(t, val1)
+	_, exists2 := ruleContext.Get("rule_2")
+	assert.False(t, exists2) // rule2 should not execute because rule1 executed and stopped iteration
+	val3, _ := ruleContext.Get("rule_3")
+	assert.True(t, val3)
+	_, exists4 := ruleContext.Get("rule_4")
+	assert.False(t, exists4) // rule4 should not execute
 }
 
 func TestBestFirstRule_ShouldRunSiblingOnEvalFalse(t *testing.T) {
-	rule := NewBestFirstRule()
-	rule.OnEval(func(ctx Context) bool { return false }).OnExecute(func(ctx Context) {
+	rule := NewBestFirstRule[bool]()
+	rule.OnEval(func(ctx Context[bool]) bool { return false }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_1", true)
 	})
 
-	rule2 := NewBestFirstRule()
-	rule2.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule2 := NewBestFirstRule[bool]()
+	rule2.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_2", true)
 	})
 
-	rule3 := NewBestFirstRule()
-	rule3.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule3 := NewBestFirstRule[bool]()
+	rule3.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_3", true)
 	})
 
-	rule4 := NewBestFirstRule()
-	rule4.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule4 := NewBestFirstRule[bool]()
+	rule4.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_4", true)
 	})
 
-	rule.AddChildren(rule3)
-	rule2.AddChildren(rule4)
+	_ = rule.AddChildren(rule3.BaseRule)
+	_ = rule2.AddChildren(rule4.BaseRule)
 
-	ruleContext := NewRuleContext()
+	ruleContext := NewRuleContext[bool]()
 
-	BestFirstRuleRunner(ruleContext, rule, rule2)
+	err := BestFirstRuleRunner(ruleContext, rule.BaseRule, rule2.BaseRule)
+	assert.NoError(t, err)
 
-	assert.Panics(t, func() { var _ = ruleContext.Get("rule_1").(bool) })
-	assert.True(t, ruleContext.Get("rule_2").(bool))
-	assert.Panics(t, func() { var _ = ruleContext.Get("rule_3").(bool) })
-	assert.True(t, ruleContext.Get("rule_4").(bool))
+	_, exists1 := ruleContext.Get("rule_1")
+	assert.False(t, exists1) // rule1 should not execute because eval returned false
+	val2, _ := ruleContext.Get("rule_2")
+	assert.True(t, val2)
+	_, exists3 := ruleContext.Get("rule_3")
+	assert.False(t, exists3) // rule3 should not execute because rule1 didn't execute
+	val4, _ := ruleContext.Get("rule_4")
+	assert.True(t, val4)
 }
 
 func TestBestFirstRule_ReadmeFlow(t *testing.T) {
@@ -179,86 +200,112 @@ func TestBestFirstRule_ReadmeFlow(t *testing.T) {
 	//              |
 	// Rule10     Rule11  ->  Rule12
 
-	rule := NewBestFirstRule()
-	rule.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule := NewBestFirstRule[bool]()
+	rule.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_1", true)
 	})
 
-	rule2 := NewBestFirstRule()
-	rule2.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule2 := NewBestFirstRule[bool]()
+	rule2.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_2", true)
 	})
 
-	rule3 := NewBestFirstRule()
-	rule3.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule3 := NewBestFirstRule[bool]()
+	rule3.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_3", true)
 	})
 
-	rule4 := NewBestFirstRule()
-	rule4.OnEval(func(ctx Context) bool { return false }).OnExecute(func(ctx Context) { // FALSE
+	rule4 := NewBestFirstRule[bool]()
+	rule4.OnEval(func(ctx Context[bool]) bool { return false }).OnExecute(func(ctx Context[bool]) { // FALSE
 		ctx.GetRuleContext().Set("rule_4", true)
 	})
 
-	rule5 := NewBestFirstRule()
-	rule5.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule5 := NewBestFirstRule[bool]()
+	rule5.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_5", true)
 	})
 
-	rule6 := NewBestFirstRule()
-	rule6.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule6 := NewBestFirstRule[bool]()
+	rule6.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_6", true)
 	})
 
-	rule7 := NewBestFirstRule()
-	rule7.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule7 := NewBestFirstRule[bool]()
+	rule7.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_7", true)
 	})
 
-	rule8 := NewBestFirstRule()
-	rule8.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule8 := NewBestFirstRule[bool]()
+	rule8.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_8", true)
 	})
 
-	rule9 := NewBestFirstRule()
-	rule9.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule9 := NewBestFirstRule[bool]()
+	rule9.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_9", true)
 	})
 
-	rule10 := NewBestFirstRule()
-	rule10.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule10 := NewBestFirstRule[bool]()
+	rule10.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_10", true)
 	})
 
-	rule11 := NewBestFirstRule()
-	rule11.OnEval(func(ctx Context) bool { return false }).OnExecute(func(ctx Context) { // FALSE
+	rule11 := NewBestFirstRule[bool]()
+	rule11.OnEval(func(ctx Context[bool]) bool { return false }).OnExecute(func(ctx Context[bool]) { // FALSE
 		ctx.GetRuleContext().Set("rule_11", true)
 	})
 
-	rule12 := NewBestFirstRule()
-	rule12.OnEval(func(ctx Context) bool { return true }).OnExecute(func(ctx Context) {
+	rule12 := NewBestFirstRule[bool]()
+	rule12.OnEval(func(ctx Context[bool]) bool { return true }).OnExecute(func(ctx Context[bool]) {
 		ctx.GetRuleContext().Set("rule_12", true)
 	})
 
-	rule.AddChildren(rule4, rule5, rule6)
-	rule4.AddChildren(rule7)
-	rule5.AddChildren(rule8, rule9)
-	rule7.AddChildren(rule10)
-	rule8.AddChildren(rule11, rule12)
+	_ = rule.AddChildren(rule4.BaseRule, rule5.BaseRule, rule6.BaseRule)
+	_ = rule4.AddChildren(rule7.BaseRule)
+	_ = rule5.AddChildren(rule8.BaseRule, rule9.BaseRule)
+	_ = rule7.AddChildren(rule10.BaseRule)
+	_ = rule8.AddChildren(rule11.BaseRule, rule12.BaseRule)
 
-	ruleContext := NewRuleContext()
+	ruleContext := NewRuleContext[bool]()
 
-	BestFirstRuleRunner(ruleContext, rule, rule2, rule3)
+	err := BestFirstRuleRunner(ruleContext, rule.BaseRule, rule2.BaseRule, rule3.BaseRule)
+	assert.NoError(t, err)
 
-	assert.True(t, ruleContext.Get("rule_1").(bool))
-	assert.Panics(t, func() { var _ = ruleContext.Get("rule_2").(bool) })
-	assert.Panics(t, func() { var _ = ruleContext.Get("rule_3").(bool) })
-	assert.Panics(t, func() { var _ = ruleContext.Get("rule_4").(bool) })
-	assert.True(t, ruleContext.Get("rule_5").(bool))
-	assert.Panics(t, func() { var _ = ruleContext.Get("rule_6").(bool) })
-	assert.Panics(t, func() { var _ = ruleContext.Get("rule_7").(bool) })
-	assert.True(t, ruleContext.Get("rule_8").(bool))
-	assert.Panics(t, func() { var _ = ruleContext.Get("rule_9").(bool) })
-	assert.Panics(t, func() { var _ = ruleContext.Get("rule_10").(bool) })
-	assert.Panics(t, func() { var _ = ruleContext.Get("rule_11").(bool) })
-	assert.True(t, ruleContext.Get("rule_12").(bool))
+	val1, _ := ruleContext.Get("rule_1")
+	assert.True(t, val1)
+	_, exists2 := ruleContext.Get("rule_2")
+	assert.False(t, exists2)
+	_, exists3 := ruleContext.Get("rule_3")
+	assert.False(t, exists3)
+	_, exists4 := ruleContext.Get("rule_4")
+	assert.False(t, exists4)
+	val5, _ := ruleContext.Get("rule_5")
+	assert.True(t, val5)
+	_, exists6 := ruleContext.Get("rule_6")
+	assert.False(t, exists6)
+	_, exists7 := ruleContext.Get("rule_7")
+	assert.False(t, exists7)
+	val8, _ := ruleContext.Get("rule_8")
+	assert.True(t, val8)
+	_, exists9 := ruleContext.Get("rule_9")
+	assert.False(t, exists9)
+	_, exists10 := ruleContext.Get("rule_10")
+	assert.False(t, exists10)
+	_, exists11 := ruleContext.Get("rule_11")
+	assert.False(t, exists11)
+	val12, _ := ruleContext.Get("rule_12")
+	assert.True(t, val12)
+}
+
+func TestBestFirstRule_MultipleChildren(t *testing.T) {
+	rule := NewBestFirstRule[int]()
+	child1 := NewBestFirstRule[int]()
+	child2 := NewBestFirstRule[int]()
+	child3 := NewBestFirstRule[int]()
+
+	// Adding multiple children should work for BestFirstRule
+	err := rule.AddChildren(child1.BaseRule, child2.BaseRule, child3.BaseRule)
+	assert.NoError(t, err)
+	assert.Equal(t, 3, rule.ChildrenCount())
+	assert.True(t, rule.HasChildren())
 }
